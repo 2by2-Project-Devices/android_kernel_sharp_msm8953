@@ -34,6 +34,7 @@
 #include <soc/qcom/restart.h>
 #include <soc/qcom/watchdog.h>
 #include <soc/qcom/minidump.h>
+#include <soc/qcom/sharp/shrlog_restart.h>
 
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
@@ -254,6 +255,29 @@ void msm_set_restart_mode(int mode)
 	restart_mode = mode;
 }
 EXPORT_SYMBOL(msm_set_restart_mode);
+
+#if defined(CONFIG_SHARP_HANDLE_PANIC)
+static struct sharp_msm_restart_callback *shrlog_cb;
+
+int sharp_msm_set_restart_callback(struct sharp_msm_restart_callback *cb)
+{
+	int old = download_mode;
+
+	shrlog_cb = cb;
+	if (!shrlog_cb || !restart_reason)
+		return 0;
+
+	if (shrlog_cb->restart_addr_set)
+		shrlog_cb->restart_addr_set(restart_reason);
+	if (shrlog_cb->preset_reason)
+		download_mode = shrlog_cb->preset_reason(old);
+	if (download_mode != old)
+		set_dload_mode(download_mode);
+
+	return 0;
+}
+EXPORT_SYMBOL(sharp_msm_set_restart_callback);
+#endif
 
 /*
  * Force the SPMI PMIC arbiter to shutdown so that no more SPMI transactions
