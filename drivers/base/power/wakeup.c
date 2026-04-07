@@ -1122,3 +1122,13 @@ static int __init wakeup_sources_debugfs_init(void)
 }
 
 postcore_initcall(wakeup_sources_debugfs_init);
+
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+#include <soc/qcom/sharp/sh_sleeplog.h>
+
+char *sh_write_buffer_wakeup_sources(char *buffer)
+{
+	return sh_write_buffer_wakeup_sources_internal(buffer,
+						       &wakeup_sources);
+}
+#endif
