@@ -1,5 +1,4 @@
-/*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,18 +10,14 @@
  * GNU General Public License for more details.
  */
 
-/dts-v1/;
-
-#include "sdm450.dtsi"
-#include "sdm450-pmi632.dtsi"
-
-/ {
-	model = "Qualcomm Technologies, Inc. SDM450 + PMI632 SOC";
-	compatible = "qcom,sdm450";
-	qcom,pmic-id = <0x010016 0x25 0x0 0x0>;
-	qcom,pmic-name = "PMI632";
+&spmi_bus {
+	pmi632_3: qcom,pmi632@3 {
+		pmi632_vib: qcom,vibrator@5700 {
+			compatible = "qcom,qpnp-vibrator-ldo";
+			reg = <0x5700 0x100>;
+			qcom,vib-ldo-volt-uv = <2700000>;
+			qcom,vib-overdrive-volt-uv = <3544000>;
+			qcom,disable-overdrive;
+		};
+	};
 };
-
-/* SH_BSP_CUST Add Start */
-#include "sharp/sharp-base-sdm450-pmi632.dtsi"
-/* SH_BSP_CUST Add End */
