@@ -686,6 +686,15 @@ static int mdss_dsi_get_dt_vreg_data(struct device *dev,
 		}
 		mp->vreg_config[i].max_voltage = tmp;
 
+#ifdef CONFIG_SHARP_DISPLAY
+		if (!strcmp(mp->vreg_config[i].vreg_name, "vdd") &&
+				mp->vreg_config[i].min_voltage == 2850000 &&
+				mp->vreg_config[i].max_voltage == 2850000) {
+			mp->vreg_config[i].min_voltage = 2800000;
+			mp->vreg_config[i].max_voltage = 2800000;
+		}
+#endif
+
 		/* enable-load */
 		rc = of_property_read_u32(supply_node,
 			"qcom,supply-enable-load", &tmp);
