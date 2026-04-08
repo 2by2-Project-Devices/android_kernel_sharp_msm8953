@@ -22,6 +22,11 @@
 #include <linux/kthread.h>
 
 #include <linux/msm-bus.h>
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+#ifdef CONFIG_SHARP_SHTERM
+#include <misc/shterm_k.h>
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #include "mdss.h"
 #include "mdss_dsi.h"
@@ -60,6 +65,9 @@ struct mdss_hw mdss_dsi1_hw = {
 
 #define DSI_BTA_EVENT_TIMEOUT (HZ / 10)
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+#define DSI_0_DLN0_PHY_ERR_CONTENTIONI_LP1 (BIT(16))
+#endif /* CONFIG_SHARP_DISPLAY */
 /* Mutex common for both the controllers */
 static struct mutex dsi_mtx;
 
@@ -1170,6 +1178,72 @@ void mdss_dsi_cmd_bta_sw_trigger(struct mdss_panel_data *pdata)
 	pr_debug("%s: BTA done, status = %d\n", __func__, status);
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+static int mdss_dsi_mipi_err_flag = 0;
+
+static inline void mdss_dsi_set_mipierr_flag(void)
+{
+	mdss_dsi_mipi_err_flag = 1;
+}
+
+static inline int mdss_dsi_get_mipierr_flags(void)
+{
+	int ret = mdss_dsi_mipi_err_flag;
+	mdss_dsi_mipi_err_flag = 0;
+	return ret;
+}
+
+#ifdef CONFIG_SHARP_SHTERM
+static const struct {
+	unsigned char chkbit;
+	shbattlog_event_num event_num;
+} mdss_dsi_panel_status_events[] = {
+	{ BIT(2)|BIT(4), SHBATTLOG_EVENT_DISP_ESD_DRVOFF	},
+	{ BIT(4),		 SHBATTLOG_EVENT_DISP_ESD_SLPIN		},
+	{ BIT(2),		 SHBATTLOG_EVENT_DISP_ESD_DISPOFF	},
+	// other ((bit(3) , bit(6) , bit(7))
+};
+#endif /* CONFIG_SHARP_SHTERM */
+
+static void mdss_dsi_output_panel_status_event(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+#ifdef CONFIG_SHARP_SHTERM
+	int i = 0;
+	int arysize = ARRAY_SIZE(mdss_dsi_panel_status_events);
+	char reg = ctrl->status_buf.data[0];
+	shbattlog_info_t info;
+
+	memset(&info, 0, sizeof(info));
+	info.event_num = SHBATTLOG_EVENT_DISP_ESD_CHK_NG;
+
+	for (i = 0; i != arysize; i++) {
+		//if (mdss_dsi_panel_status_events[i].reg == reg) {
+		if ((mdss_dsi_panel_status_events[i].chkbit & reg) == 0) {
+			info.event_num = mdss_dsi_panel_status_events[i].event_num;
+			break;
+		}
+	}
+
+	pr_debug("%s: reg = 0x%02x, event=%d\n", __func__, reg, info.event_num);
+	shterm_k_set_event(&info);
+#endif /* CONFIG_SHARP_SHTERM */
+}
+
+static void mdss_dsi_output_panel_read_event(int is_mipierr)
+{
+#ifdef CONFIG_SHARP_SHTERM
+	shbattlog_info_t info;
+	memset(&info, 0, sizeof(info));
+	info.event_num = is_mipierr ?
+						SHBATTLOG_EVENT_DISP_ESD_MIPI_ERROR:
+						SHBATTLOG_EVENT_DISP_ESD_READ_ERROR;
+
+	pr_debug("%s: event=%d\n", __func__, info.event_num);
+	shterm_k_set_event(&info);
+#endif /* CONFIG_SHARP_SHTERM */
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	int i, rc, *lenp;
@@ -1214,6 +1288,24 @@ static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
 	return rc;
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00041 */
+int mdss_dsi_host_is_retry_over(void)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata;
+	int flg = 0;	// no error is 0
+
+	ctrl_pdata = mdss_dsi_get_ctrl_by_index(DSI_CTRL_0);
+
+	if (ctrl_pdata) {
+		if (ctrl_pdata->recovery_cnt >= 3) {
+			ctrl_pdata->recovery_cnt = 0;
+			flg = -EINVAL;
+		}
+	}
+
+	return (flg);
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * mdss_dsi_reg_status_check() - Check dsi panel status through reg read
@@ -1229,6 +1321,9 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int ret = 0;
 	struct mdss_dsi_ctrl_pdata *sctrl_pdata = NULL;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+	int is_mipierr = 0;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (ctrl_pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -1263,6 +1358,10 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 		}
 	}
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+	is_mipierr = mdss_dsi_get_mipierr_flags();
+	pr_debug("%s: is_mipierr = %d\n", __func__, is_mipierr);
+#endif /* CONFIG_SHARP_DISPLAY */
 	/*
 	 * mdss_dsi_read_status returns the number of bytes returned
 	 * by the panel. Success value is greater than zero and failure
@@ -1274,8 +1373,21 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			ret = ctrl_pdata->check_read_status(ctrl_pdata);
 		else if (sctrl_pdata)
 			ret = ctrl_pdata->check_read_status(sctrl_pdata);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 *//* CUST_ID_00041 */
+		if (ret <= 0) {
+			ctrl_pdata->recovery_cnt++;
+			pr_warn("%s: recovery_cnt=%d\n", __func__,
+						ctrl_pdata->recovery_cnt);
+			mdss_dsi_output_panel_status_event(ctrl_pdata);
+		} else {
+			ctrl_pdata->recovery_cnt = 0;
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 	} else {
 		pr_err("%s: Read status register returned error\n", __func__);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+		mdss_dsi_output_panel_read_event(is_mipierr);
+#endif /* CONFIG_SHARP_DISPLAY */
 	}
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
@@ -3096,6 +3208,12 @@ bool mdss_dsi_dln0_phy_err(struct mdss_dsi_ctrl_pdata *ctrl, bool print_en)
 
 	status = MIPI_INP(base + 0x00b4);/* DSI_DLN0_PHY_ERR */
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00021 */
+	pr_debug("%s: debug status=0x%x\n", __func__, status);
+	if (status & DSI_0_DLN0_PHY_ERR_CONTENTIONI_LP1) {
+		mdss_dsi_set_mipierr_flag();
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	if (status & 0x011111) {
 		MIPI_OUTP(base + 0x00b4, status);
 		if (print_en)

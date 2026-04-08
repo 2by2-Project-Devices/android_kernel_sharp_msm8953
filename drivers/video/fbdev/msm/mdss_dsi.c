@@ -28,6 +28,9 @@
 #include <linux/pm_qos.h>
 #include <linux/mdss_io_util.h>
 #include <linux/dma-buf.h>
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+#include <linux/msm_mdp.h>
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #include "mdss.h"
 #include "mdss_panel.h"
@@ -46,6 +49,13 @@ static struct mdss_dsi_data *mdss_dsi_res;
 
 #define DSI_DISABLE_PC_LATENCY 100
 #define DSI_ENABLE_PC_LATENCY PM_QOS_DEFAULT_VALUE
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+static int mdss_dsi_mipiclk_update_clks(struct mdss_panel_data *pdata,
+		struct mdp_mipi_clkchg_param * req);
+static int mdss_dsi_mipiclk_config_dsi(struct mdss_panel_data *pdata,
+		struct mdp_mipi_clkchg_param * req);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static struct pm_qos_request mdss_dsi_pm_qos_request;
 
@@ -402,6 +412,12 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 	if (ret)
 		pr_err("%s: failed to disable vregs for %s\n",
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+	mdss_dsi_enable_panel_vddio_gpio(ctrl_pdata, 0);
+	if (ret)
+		pr_err("%s: failed to disable panel vddio gpio for %d\n",
+			__func__, ctrl_pdata->panel_vddio_gpio);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 end:
 	return ret;
@@ -428,6 +444,14 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 			pr_err("%s: unable to set dir for vdd gpio\n",
 					__func__);
 	}
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+	ret = mdss_dsi_enable_panel_vddio_gpio(ctrl_pdata, 1);
+	if (ret) {
+		pr_err("%s: failed to enable panel vddio gpio for %d\n",
+			__func__, ctrl_pdata->panel_vddio_gpio);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	ret = msm_mdss_enable_vreg(
 		ctrl_pdata->panel_power_data.vreg_config,
@@ -2891,6 +2915,16 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 				&ctrl_pdata->dba_work, HZ);
 		}
 		break;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+	case MDSS_EVENT_MIPICLK_UPDATE_CLK:
+		rc = mdss_dsi_mipiclk_update_clks(pdata,
+			(struct mdp_mipi_clkchg_param*)arg);
+		break;
+	case MDSS_EVENT_MIPICLK_CONFIG_DSI:
+		rc = mdss_dsi_mipiclk_config_dsi(pdata,
+			(struct mdp_mipi_clkchg_param*)arg);
+		break;
+#endif /* CONFIG_SHARP_DISPLAY */
 	case MDSS_EVENT_UPDATE_LIVEDISPLAY:
 		rc = mdss_livedisplay_update(ctrl_pdata, (int)(unsigned long) arg);
 		break;
@@ -3491,6 +3525,9 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 		ctrl_pdata->shared_data->dsi1_active = true;
 
 	mdss_dsi_debug_bus_init(mdss_dsi_res);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00041 */
+	ctrl_pdata->recovery_cnt = 0;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	return 0;
 
@@ -4274,6 +4311,28 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 		pr_debug("%s:%d, intf mux gpio not specified\n",
 						__func__, __LINE__);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003, CUST_ID_00004 */
+	ctrl_pdata->tp_rst_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+			 "sharp,panel-tp-reset-gpio", 0);
+	if (ctrl_pdata->tp_rst_gpio > 0) {
+		if (!gpio_is_valid(ctrl_pdata->tp_rst_gpio))
+			pr_err("%s:%d, tp reset gpio not specified\n",
+							__func__, __LINE__);
+	} else {
+		ctrl_pdata->tp_rst_gpio = 0;
+	}
+
+	ctrl_pdata->panel_vddio_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+			 "sharp,panel-vddio-supply-gpio", 0);
+	if (ctrl_pdata->panel_vddio_gpio > 0) {
+		if (!gpio_is_valid(ctrl_pdata->panel_vddio_gpio))
+			pr_err("%s:%d, ldo en gpio not specified\n",
+							__func__, __LINE__);
+	} else {
+		ctrl_pdata->panel_vddio_gpio = 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	return 0;
 }
 
@@ -4464,6 +4523,80 @@ int dsi_panel_device_register(struct platform_device *ctrl_pdev,
 	pr_debug("%s: Panel data initialized\n", __func__);
 	return 0;
 }
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+static void mdss_dsi_clkchg_host_update(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	u32 data;
+	struct mipi_panel_info *pinfo = NULL;
+
+	pinfo = &ctrl_pdata->panel_data.panel_info.mipi;
+
+	/* clock out ctrl */
+	data = pinfo->t_clk_post & 0x3f;	/* 6 bits */
+	data <<= 8;
+	data |= pinfo->t_clk_pre & 0x3f;	/* 6 bits */
+	/* DSI_CLKOUT_TIMING_CTRL */
+	pr_debug("%s: data=0x%x\n", __func__, data);
+	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0xc4, data);
+}
+
+static int mdss_dsi_mipiclk_update_clks(struct mdss_panel_data *pdata,
+		struct mdp_mipi_clkchg_param * req)
+{
+	int rc = 0;
+	struct mdss_panel_data * p = pdata;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+
+	pr_debug("%s: called\n", __func__);
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+	ctrl_pdata->update_info(p, req);
+
+	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
+			MDSS_DSI_LINK_CLK, MDSS_DSI_CLK_OFF);
+
+	pr_debug("%s: out\n", __func__);
+	return rc;
+}
+
+static int mdss_dsi_mipiclk_config_dsi(struct mdss_panel_data *pdata,
+		struct mdp_mipi_clkchg_param * req)
+{
+	int rc = 0;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+
+	pr_debug("%s: called\n", __func__);
+
+	rc = mdss_dsi_clk_refresh(pdata, false);
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+			panel_data);
+
+	mdss_dsi_phy_init(ctrl_pdata);
+	mdss_dsi_clkchg_host_update(ctrl_pdata);
+
+	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
+			MDSS_DSI_LINK_CLK, MDSS_DSI_CLK_ON);
+
+	mdss_dsi_sw_reset(ctrl_pdata, true);
+	pr_debug("%s: out\n", __func__);
+	return rc;
+}
+
+void __mdss_dsi_update_video_mode_total_wrap(struct mdss_panel_data *pdata,
+		int new_fps)
+{
+	__mdss_dsi_update_video_mode_total(pdata, new_fps);
+}
+
+void __mdss_dsi_mask_dfps_errors_wrap(struct mdss_dsi_ctrl_pdata *ctrl,
+					bool mask)
+{
+	__mdss_dsi_mask_dfps_errors(ctrl, mask);
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static const struct of_device_id mdss_dsi_dt_match[] = {
 	{.compatible = "qcom,mdss-dsi"},

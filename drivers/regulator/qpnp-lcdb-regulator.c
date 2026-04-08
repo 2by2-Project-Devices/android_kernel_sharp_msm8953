@@ -2315,6 +2315,9 @@ static int qpnp_lcdb_regulator_probe(struct platform_device *pdev)
 	int rc;
 	struct device_node *node;
 	struct qpnp_lcdb *lcdb;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00002 */
+	u8 val;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	node = pdev->dev.of_node;
 	if (!node) {
@@ -2367,6 +2370,16 @@ static int qpnp_lcdb_regulator_probe(struct platform_device *pdev)
 			lcdb->lcdb_enabled, lcdb->ldo.voltage_mv,
 			lcdb->ncp.voltage_mv, lcdb->bst.voltage_mv);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00002 */
+	val = 0x0F;
+	pr_debug("%s :write vsp-vsn wait time val(0x%02x)\n",__func__, val);
+	rc = qpnp_lcdb_secure_write(lcdb, lcdb->base + LCDB_PWRUP_PWRDN_CTL_REG,
+							val);
+	if (rc < 0) {
+		pr_err("Failed to set PWRUP_PWRDN_CTL rc=%d\n", rc);
+		return rc;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	return rc;
 }
 

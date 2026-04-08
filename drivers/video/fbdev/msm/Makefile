@@ -24,6 +24,7 @@ mdss-mdp-objs += mdss_mdp_wfd.o
 mdss-mdp-objs += mdss_io_util.o
 obj-$(CONFIG_FB_MSM_MDSS) += mdss-mdp.o
 obj-$(CONFIG_FB_MSM_MDSS) += mdss_mdp_debug.o
+obj-$(CONFIG_SHARP_DISPLAY) += mdss_diag.o
 
 mdss-mdp-objs += mdss_mdp_pp_v1_7.o
 mdss-mdp-objs += mdss_mdp_pp_v3.o
@@ -83,3 +84,7 @@ obj-$(CONFIG_FB_MSM_MDSS) += mdss_fb.o mdss_util.o
 obj-$(CONFIG_COMPAT) += mdss_compat_utils.o
 
 obj-$(CONFIG_FB_MSM_MDSS) += mdss_livedisplay.o
+
+ifeq ($(CONFIG_SHARP_DISPLAY),y)
+obj-$(CONFIG_ANDROID_ENGINEERING) += mdss_proc.o
+endif

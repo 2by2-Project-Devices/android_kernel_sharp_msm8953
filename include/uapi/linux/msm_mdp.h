@@ -75,6 +75,12 @@
 #define MSMFB_LPM_ENABLE	_IOWR(MSMFB_IOCTL_MAGIC, 170, unsigned int)
 #define MSMFB_MDP_PP_GET_FEATURE_VERSION _IOWR(MSMFB_IOCTL_MAGIC, 171, \
 					      struct mdp_pp_feature_version)
+#define MSMFB_MIPI_DSI_CHECK _IOWR(MSMFB_IOCTL_MAGIC, 172, \
+					struct mdp_mipi_check_param)
+#define MSMFB_MIPI_DSI_CLKCHG _IOW(MSMFB_IOCTL_MAGIC, 173, \
+					struct mdp_mipi_clkchg_param)
+#define MSMFB_GET_PANEL_OTP_INFO _IOR(MSMFB_IOCTL_MAGIC, 174, \
+					struct mdp_panel_otp_info)
 
 #define FB_TYPE_3D_PANEL 0x10101010
 #define MDP_IMGTYPE2_START 0x10000
@@ -301,6 +307,70 @@ enum mdss_mdp_max_bw_mode {
 #define MDP_DEEP_COLOR_RGB30B    0x2
 #define MDP_DEEP_COLOR_RGB36B    0x4
 #define MDP_DEEP_COLOR_RGB48B    0x8
+
+#define MSMFB_SAVE_VALUE		0x00001000
+#define MSMFB_SAVE_VALUE_LOW		0x00002000
+#define MSMFB_RESET_VALUE		0x00004000
+
+#define MSMFB_GMMVOLT_REQ_ADJUST	1
+#define MSMFB_GMMVOLT_REQ_UNADJUST	2
+
+#define MDSS_MIPICHK_RESULT_OK		0
+#define MDSS_MIPICHK_RESULT_NG		1
+
+enum panel_type {
+	PANEL_TYPE_UNKNOWN = 0,
+	PANEL_TYPE_ANDY,
+	PANEL_TYPE_HAYABUSA,
+	PANEL_TYPE_SINANJU,
+	PANEL_TYPE_SAZABI,
+};
+
+struct mdp_mipi_check_param {
+	__u8 frame_cnt;
+	__u8 amp;
+	__u8 sensitiv;
+	__u8 result_master;
+	__u8 result_slave;
+};
+
+typedef struct {
+	__u8 DSI[5];
+	__u8 OSC[10];
+} mdp_mipi_clkchg_panel_t;
+
+struct mdp_mipi_clkchg_host {
+	__u32 clock_rate;
+	__u32 display_width;
+	__u32 display_height;
+	__u32 hsync_pulse_width;
+	__u32 h_back_porch;
+	__u32 h_front_porch;
+	__u32 vsync_pulse_width;
+	__u32 v_back_porch;
+	__u32 v_front_porch;
+	__u8 t_clk_post;
+	__u8 t_clk_pre;
+	__u8 timing_ctrl[12];
+};
+
+struct mdp_mipi_clkchg_param {
+	struct mdp_mipi_clkchg_host host;
+	mdp_mipi_clkchg_panel_t panel;
+	__s32 internal_osc;
+};
+
+struct mdp_flicker_param {
+	__u16 request;
+	__u16 vcom;
+};
+
+struct mdp_panel_otp_info {
+	__u8 status;
+	__u8 a;
+	__u8 b;
+	__u8 reserved;
+};
 
 struct mdp_rect {
 	uint32_t x;

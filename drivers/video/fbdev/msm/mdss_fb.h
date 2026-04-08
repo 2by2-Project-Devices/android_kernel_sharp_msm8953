@@ -376,6 +376,9 @@ struct msm_fb_data_type {
 	bool pending_switch;
 	struct mutex switch_lock;
 	struct input_handler *input_handler;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00018 */
+	struct thermal_cooling_device *tcdev;
+#endif /* CONFIG_SHARP_DISPLAY */
 };
 
 static inline void mdss_fb_update_notify_update(struct msm_fb_data_type *mfd)
